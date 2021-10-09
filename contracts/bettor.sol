@@ -15,7 +15,7 @@ contract Bettor {
     }
 
     struct Reward {
-        bytes32 name;
+        uint256 id;
         uint256 rarity;
     }
 
@@ -73,8 +73,6 @@ contract Bettor {
         (, uint256 index) = getGameFromOwner(msg.sender);
 
         if (betResult) {
-            _createReward(game.level);
-
             games[index].level++;
             games[index].number = randomNumber;
         } else {
@@ -97,8 +95,15 @@ contract Bettor {
         emit CreateGame(newGame);
     }
 
-    function _createReward() internal {
-        Reward memory reward = Reward();
+    function _createReward(uint256 _level) internal {
+        uint256 randomnumber = uint256(
+            keccak256(abi.encodePacked(block.timestamp, msg.sender, nonce))
+        );
+        Reward memory newReward = Reward(randomnumber, _level);
+        rewards.push(newReward);
+        rewardToOwner[games.length - 1] = msg.sender;
+
+        emit CreateReward(newReward);
     }
 
     function getGame() public view returns (Game memory) {
