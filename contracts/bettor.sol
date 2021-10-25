@@ -4,9 +4,11 @@ pragma solidity ^0.8.0;
 import "hardhat/console.sol";
 
 contract Bettor {
-    event Bet(bool result, uint256 number);
+    event Bet(bool result, uint256 number, Game game);
     event CreateGame(Game game);
     event CreateReward(Reward reward);
+    event GameFinished(bool gameFinished);
+    event ResetGame(Game game);
 
     struct Game {
         uint8 level;
@@ -36,28 +38,18 @@ contract Bettor {
     constructor() {}
 
     function startGame() external {
-        (bool exists, uint256 index) = getGameFromOwner(msg.sender);
+        (bool exists, uint256 index) = _getGameFromOwner(msg.sender);
 
         if (exists) {
-            Game memory game = games[index];
-            if (game.finished) {
-                game.level = 1;
-                game.finished = false;
-            }
+            _resetGame(index);
         } else {
             _createGame();
         }
     }
 
-    function bet(BetType _betType) external {
-        Game memory game = getGame();
-
-        require(
-            game.level != 0 && game.finished == false,
-            "You should start the game before make a bet."
-        );
-
+    function bet(BetType _betType) external isGameActive {
         uint256 randomNumber = generateRandomNumber();
+        Game memory game = getGame();
 
         bool betResult;
         if (_betType == BetType.LOWER) {
@@ -68,9 +60,7 @@ contract Bettor {
             betResult = randomNumber > game.number;
         }
 
-        // console.log("BET: %s to %s = %s", randomNumber, game.number, betResult);
-
-        (, uint256 index) = getGameFromOwner(msg.sender);
+        (, uint256 index) = _getGameFromOwner(msg.sender);
 
         if (betResult) {
             games[index].level++;
@@ -79,11 +69,47 @@ contract Bettor {
             games[index].finished = true;
         }
 
-        emit Bet(betResult, randomNumber);
+        emit Bet(betResult, randomNumber, games[index]);
     }
 
     function getGamesLength() external view returns (uint256) {
         return games.length;
+    }
+
+    function stand() external isGameActive {
+        (, uint256 index) = _getGameFromOwner(msg.sender);
+        games[index].finished = true;
+        _createReward(games[index].level);
+
+        emit GameFinished(true);
+    }
+
+    function getGame() public view returns (Game memory) {
+        (bool exists, uint256 index) = _getGameFromOwner(msg.sender);
+
+        if (exists) {
+            return games[index];
+        }
+    }
+
+    function getGames() public view returns (Game[] memory) {
+        return games;
+    }
+
+    function getRewards() external view returns (Reward[] memory) {
+        return rewards;
+    }
+
+    function _resetGame(uint256 index) internal {
+        if (games[index].finished) {
+            uint256 randomNumber = generateRandomNumber();
+
+            games[index].number = randomNumber;
+            games[index].level = 1;
+            games[index].finished = false;
+        }
+
+        emit ResetGame(games[index]);
     }
 
     function _createGame() internal {
@@ -96,25 +122,17 @@ contract Bettor {
     }
 
     function _createReward(uint256 _level) internal {
-        uint256 randomnumber = uint256(
+        uint256 randomNumber = uint256(
             keccak256(abi.encodePacked(block.timestamp, msg.sender, nonce))
         );
-        Reward memory newReward = Reward(randomnumber, _level);
+        Reward memory newReward = Reward(randomNumber, _level);
         rewards.push(newReward);
-        rewardToOwner[games.length - 1] = msg.sender;
-
+        rewardToOwner[rewards.length - 1] = msg.sender;
+        nonce++;
         emit CreateReward(newReward);
     }
 
-    function getGame() public view returns (Game memory) {
-        (bool exists, uint256 index) = getGameFromOwner(msg.sender);
-
-        if (exists) {
-            return games[index];
-        }
-    }
-
-    function getGameFromOwner(address _owner)
+    function _getGameFromOwner(address _owner)
         internal
         view
         returns (bool, uint256)
@@ -137,5 +155,15 @@ contract Bettor {
         randomnumber = randomnumber + 1;
         nonce++;
         return randomnumber;
+    }
+
+    modifier isGameActive() {
+        Game memory game = getGame();
+        require(
+            game.level > 0 && game.finished == false,
+            "Your game is not currently active."
+        );
+
+        _;
     }
 }
